@@ -35,6 +35,10 @@ class Pso:
         self.BoxWidthFunction = None                    # Function of iteration number
         self.SampleSizeFunction = None                 # Function of iteration number
 
+        self.mesh_coarseness = 100                          # higher values mean finding low density regions more accurately
+        self.mesh_bound_reduction_factor = 1                # (0, 1]
+        self.length_scale = (bounds[0][1] - bounds[0][0])/self.mesh_coarseness
+
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
@@ -52,6 +56,9 @@ class Pso:
             self.sample_points = None
             self.sample_points_results = None
             self.adventure_lead = None
+            self.stuck = False
+            self.interesting = False
+            self.local_max_history = []
 
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
@@ -80,18 +87,19 @@ class Pso:
         class Adventurous:
             def __init__(adventurous):
                 adventurous.id = 2
-                adventurous.hyper_parameter_set = [0.8, 0.1, 0.1, 0.8, 0]
+                adventurous.hyper_parameter_set = [0, 0, 0, 1, 0]
 
-        class Intuitive:
-            def __init__(intuitive):
-                intuitive.id = 3
-                intuitive.hyper_parameter_set = [0.8, 0.3, 0, 0, 0.7]
+        class Predictive:
+            def __init__(predictive):
+                predictive.id = 3
+                predictive.hyper_parameter_set = [0.8, 0.3, 0, 0, 0.7]
  
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
     class Swarm:
+
         def __init__ (swarm, particles, communication_matrix, pso):
             swarm.particles = particles                                             # holds an array of type: particle                                            
             swarm.communication_matrix = communication_matrix                      # number_of_particles X number of particles matrix holding the communication values between particles
@@ -104,6 +112,9 @@ class Pso:
             swarm.y_value_history = None
 
             swarm.adventure_leads = np.empty((int(pso.number_of_particles*pso.species_weights[2]), pso.dimension))
+
+            swarm.predicted_max_loc = None
+            swarm.predicted_weight = 0
 
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
@@ -146,7 +157,7 @@ class Pso:
                 upper_bound = x + half_box_width
             box_bounds.append([lower_bound, upper_bound])
 
-        particle.box = self.Box(box_bounds)   
+        particle.box = self.Box(box_bounds)  
         
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
@@ -215,6 +226,8 @@ class Pso:
                 if particle.local_max == None or np.min(particle.sample_points_results) < particle.local_max:
                     particle.local_max = np.min(particle.sample_points_results)
                     particle.local_max_loc = particle.sample_points[np.argmin(particle.sample_points_results)]
+        
+        particle.local_max_history.append([particle.local_max_loc, particle.local_max])
 
         for p, particle in enumerate(self.swarm.particles):
             self.swarm.local_maxima[p] = particle.local_max
@@ -262,33 +275,42 @@ class Pso:
         else:
             sampled_point_position_history = self.swarm.position_history
             sampled_y_value_history = self.swarm.y_value_history
-            all_sampled_points_positions = np.empty((len(sampled_point_position_history) + self.number_of_particles * len(self.swarm.particle[0].sample_points), self.dimension))
-            all_sampled_y_values = np.empty((len(sampled_point_position_history) + self.number_of_particles * len(self.swarm.particle[0].sample_points), 1))
+            all_sampled_points_positions = np.empty((len(sampled_point_position_history) + self.number_of_particles * len(self.swarm.particles[0].sample_points), self.dimension))
+            all_sampled_y_values = np.empty((len(sampled_point_position_history) + self.number_of_particles * len(self.swarm.particles[0].sample_points), 1))
             all_sampled_points_positions[:len(sampled_point_position_history)] = sampled_point_position_history 
             all_sampled_y_values[:len(sampled_point_position_history)] = sampled_y_value_history
             for p, particle in enumerate(self.swarm.particles):
                 for s, sample_point in enumerate(particle.sample_points):
                     all_sampled_points_positions[len(sampled_point_position_history) + p*len(particle.sample_points) + s, :] = sample_point
-                    all_sampled_y_values[len(sampled_point_position_history) + p*len(particle.sample_points) + s, :] = particle.sample_points_result[s]
+                    all_sampled_y_values[len(sampled_point_position_history) + p*len(particle.sample_points) + s, :] = particle.sample_points_results[s]
             self.swarm.position_history = all_sampled_points_positions
             self.swarm.y_value_history = all_sampled_y_values
         
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
-
+ 
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
     def FindLowDensityRegions(self):
 
+        number_of_explorers = 0
+        for particle in self.swarm.particles:
+            if particle.species == 2:
+                number_of_explorers += 1
+
+        grid_ranges =   [np.linspace(max(self.bounds[dim][0], (self.swarm.global_max_loc[dim] - 0.5*self.mesh_bound_reduction_factor*(self.bounds[dim][1] - self.bounds[dim][0]))), 
+                                     min(self.bounds[dim][1], (self.swarm.global_max_loc[dim] + 0.5*self.mesh_bound_reduction_factor*(self.bounds[dim][1] - self.bounds[dim][0]))), 
+                                     self.mesh_coarseness) for dim in range(self.dimension)]
+
+        mesh_points = np.array(np.meshgrid(*grid_ranges)).T.reshape(-1, self.dimension)
+
         Neighbors = NearestNeighbors(n_neighbors=int(self.number_of_particles / 10)).fit(self.swarm.position_history)
-        distances, _ = Neighbors.kneighbors(self.swarm.position_history)
+        distances, _ = Neighbors.kneighbors(mesh_points)
 
         avg_distances = np.mean(distances, axis=1)
 
-        number_of_low_density_points = int(self.number_of_particles * self.species_weights[2])
+        low_density_indices = np.argsort(avg_distances)[-number_of_explorers:]
 
-        low_density_indices = np.argsort(avg_distances)[-number_of_low_density_points:]
-
-        low_density_positions = self.swarm.position_history[low_density_indices]
+        low_density_positions = mesh_points[low_density_indices]
 
         self.swarm.adventure_leads = low_density_positions
 
@@ -319,24 +341,188 @@ class Pso:
                 particle.adventure_lead = matched_leads[index]
                 index += 1
 
+        # adventure_id = 0
+        # for particle in self.swarm.particles:
+        #     if particle.species == 2:
+        #         particle.position = self.swarm.adventure_leads[adventure_id]
+        #         adventure_id += 1
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    def PredictOptimum(self):
+        if self.maximise == True:
+            if self.swarm.predicted_max_loc != None:
+                weighted_loc = self.swarm.predicted_weight * self.swarm.predicted_max_loc
+                total_weight = self.swarm.predicted_weight
+            else:
+                weighted_loc = np.zeros(self.dimension)
+                total_weight = 0
+            for particle in self.swarm.particles:
+                for sample_point, result in zip(particle.sample_points, particle.sample_points_results):
+                    weighted_loc = np.add(weighted_loc, result*np.array(sample_point))
+                    total_weight += result
+        else:
+            if self.swarm.predicted_max_loc is not None:
+                weighted_loc = self.swarm.predicted_weight * self.swarm.predicted_max_loc
+                total_weight = self.swarm.predicted_weight
+            else:
+                weighted_loc = np.zeros(self.dimension)
+                total_weight = 0
+            for particle in self.swarm.particles:
+                for sample_point, result in zip(particle.sample_points, particle.sample_points_results):
+                    weighted_loc = np.add(weighted_loc, (1 / result) * np.array(sample_point))
+                    total_weight += (1 / result)
+
+        self.swarm.predicted_weight = total_weight
+        self.swarm.predicted_max_loc = weighted_loc / total_weight
+
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
-    # def GenerateCommunicationMatrix(self):
+    def UpdateVelocity(self):
 
-    #     communication_matrix = np.empty((self.number_of_particles, self.number_of_particles))
+        species = self.Species()
+        reckless = species.Reckless()
+        cautious = species.Cautious()
+        adventurous = species.Adventurous()
+        predictive = species.Predictive()
+
+        for particle in self.swarm.particles:
+            if particle.species == 0:
+                particle.velocity =  np.add(np.add(reckless.hyper_parameter_set[0]*np.array(particle.velocity),
+                                                   reckless.hyper_parameter_set[1]*np.subtract(np.array(particle.local_max_loc), np.array(particle.position))),
+                                            reckless.hyper_parameter_set[2]*np.subtract(np.array(self.swarm.global_max_loc), np.array(particle.position)))
+            elif particle.species == 1:
+                particle.velocity =  np.add(np.add(cautious.hyper_parameter_set[0]*np.array(particle.velocity),
+                                                   cautious.hyper_parameter_set[1]*np.subtract(np.array(particle.local_max_loc), np.array(particle.position))),
+                                            cautious.hyper_parameter_set[2]*np.subtract(np.array(self.swarm.global_max_loc), np.array(particle.position)))
+
+            elif particle.species == 2:
+                particle.velocity =  np.add(np.add(np.add(adventurous.hyper_parameter_set[0]*np.array(particle.velocity),
+                                                        adventurous.hyper_parameter_set[1]*np.subtract(np.array(particle.local_max_loc), np.array(particle.position))),
+                                                        adventurous.hyper_parameter_set[2]*np.subtract(np.array(self.swarm.global_max_loc), np.array(particle.position))),
+                                                        adventurous.hyper_parameter_set[3]*np.subtract(np.array(particle.adventure_lead), np.array(particle.position)))
+            
+            elif particle.species == 3:
+                particle.velocity =  np.add(np.add(np.add(predictive.hyper_parameter_set[0]*np.array(particle.velocity),
+                                                        predictive.hyper_parameter_set[1]*np.subtract(np.array(particle.local_max_loc), np.array(particle.position))),
+                                                        predictive.hyper_parameter_set[2]*np.subtract(np.array(self.swarm.global_max_loc), np.array(particle.position))),
+                                                        predictive.hyper_parameter_set[3]*np.subtract(np.array(self.swarm.predicted_max_loc), np.array(particle.position)))
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    def UpdatePosition(self):
+
+        for particle in self.swarm.particles:
+            particle.position = np.add(particle.position, particle.velocity)
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    def EvolveStuckParticle(self, particle):
+
+        if particle.stuck == True:
+            print('Im stuck!')
+            particle.species = 2
+            particle.stuck = False
+            particle.position = np.array(particle.position)
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    def EvolveSuccessfulExpedition(self, particle):
         
-    #     for particle in self.swarm.particles:
-    #         particle_communication_row = np.empty((self.number_of_particles, 1))
-    #         if particle.species == 0:
-    #             particle_communication_row = [reckless_global_attraction for _ in range(self.number_of_particles)]
-    #         elif particle.species == 1:
+        if particle.interesting == True:
+            print('Im interesting!')
+            particle.species = 2
+            particle.position = particle.position.reshape(-1)
+            particle.velocity = np.array(np.random.uniform(-self.initial_velocity, self.initial_velocity, size=(1, self.dimension))).reshape(-1)
+        particle.interesting == False
 
-    #         elif particle.species == 2:
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
-    #         elif particle.species == 3:
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
-    #         else:
-    #             # Log an error
-    #             return
+    def DetermineSuccessfulExpedition(self, particle):
+        if self.current_iteration > 10:
+            try:
+                if self.maximise == True:
+                    if particle.local_max > particle.local_max_history[-1][1]:
+                        particle.interesting = True
+                        particle.species = 1
+                elif self.maximise == False:
+                    if particle.local_max < particle.local_max_history[-1][1]:
+                        particle.interesting = True
+                        particle.species = 1
+            except:
+                pass
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    def DetermineParticleStuck(self, particle):
+        try:
+            if self.maximise == True:
+                if particle.local_max <= particle.local_max_history[-3][1]:
+                    particle.stuck = True
+            elif self.maximise == False:
+                if particle.local_max >= particle.local_max_history[-3][1]:
+                    particle.stuck = True
+        except:
+            pass
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    def UpdateSpecies(self):
+
+        for particle in self.swarm.particles:
+            self.DetermineParticleStuck(particle)
+            self.DetermineSuccessfulExpedition(particle)
+            self.EvolveStuckParticle(particle)
+            self.EvolveSuccessfulExpedition(particle)
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
+
+    def Iterate(self, iterations):
+        for _ in range(iterations):
+            if self.current_iteration == 0:
+                self.InitialiseSwarm()
+            else:
+                self.UpdatePosition()
+                
+            try:
+                self.GenerateAllBoxes()
+            except:
+                print('Failed to specify BoxWidthFunction!')
+            
+            try:
+                self.PopulateAllBoxes()
+            except: 
+                print('Failed to specify SampleSizeFunction')
+
+            self.GetY()
+            self.UpdateLocalMaxima()
+            self.UpdateSpecies()
+            self.UpdateGlobalMaxima()
+            self.RankParticles()
+            self.WriteSamplePointsHistory()
+            self.FindLowDensityRegions()
+            self.AssignAdventureLeads()
+            self.PredictOptimum()
+            self.UpdateVelocity()
+            self.current_iteration += 1
+
+            
+            
