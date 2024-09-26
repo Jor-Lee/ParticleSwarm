@@ -1,0 +1,69 @@
+File6
+c
+geometry 3 
+c
+mesh 1 151 0 1.300000e-01 1.000000e+00 
+mesh 151 403 1.300000e-01 1.400000e-01 1.015300e+00 
+mesh 403 650 1.400000e-01 1.425000e-01 9.854000e-01 
+c
+region 1 150 1 1.000e-03 1.551e-06 
+region 151 402 2 2.530e-01 1.551e-06 
+region 403 649 3 1.040e+00 1.551e-06 
+c
+material 1 dt 
+material 2 dt 
+material 3 1. 2.014  0.5 
+material 3 6. 12.012 0.5 
+c
+qeos 1 1.86e9 3.0e-04 
+qeos 2 1.86e9 0.253 
+eos /work4/clf/rad_hydro/hyades/EOS-Opacity/EOS/eos_32.dat 3 
+c
+eosxtrp  1  1  2  1  2 
+eosxtrp  2  1  2  1  2 
+eosxtrp  3  1  2  1  2 
+c
+ioniz 1 4 
+ioniz 2 4 
+ioniz 3 4 
+c
+source laser 0.351 -650 
+tv 0. 0. 
+tv 2.000e-10  2.452e+19
+tv 4.537e-09 2.452e+19
+tv 4.737e-09 9.662e+20
+tv 7.174e-09 9.662e+20
+tv 7.374e-09 1.955e+21
+tv 9.345e-09 2.555e+21
+tv 9.545e-09 2.555e+21
+c
+c
+tnburn 1 2 
+parm tibmn 0.1  
+c
+group  0 20 0.03 1.0 
+group 20 50 1.00 5.0 
+group 50 70 5.00 300.0 
+c
+pparray rho te ti tr pres R Rcm zbar u deplas xlsint vol bpeprd bpeprdr bpedep dene eion eelc TNDENI 
+c
+parm xlibam 1.0 
+parm flxlem 0.050 
+parm flxlim 0.4 
+parm alvism 0.3 
+parm aqvism 2.0 
+parm qstimx 4.3e-6 
+parm lrdtrn 1 
+parm temin 1.551e-06 
+parm timin 1.551e-06 
+parm irdtrn 2 
+parm nstop 1e8 
+parm dt 1e-15 
+parm dtmin 1e-25  
+parm JHTRMX 200 
+change 3.0000e-09 postdt 2.0000e-11 
+change 5.0000e-09 postdt 1.0000e-10 
+change 8.0000e-09 postdt 1.0000e-11 
+change 1.0000e-08 postdt 2.0000e-11 
+parm postdt 1.0000e-10 
+parm tstop 1.8000e-08 
