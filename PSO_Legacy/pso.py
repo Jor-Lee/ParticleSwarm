@@ -33,7 +33,8 @@ class Pso:
         self.GenerateY = GenerateY                              # The objective function (black-box function) to be optimized.
         self.maximise = maximise                                # Determines the optimization goal: True for maximization, False for minimization.
 
-        self.initial_velocity = 20 * (bounds[0][0] - bounds[0][1]) / self.number_of_particles  # Initial velocity for particles to initiate movement in the first iteration.
+        self.initial_velocity = 1 * np.min(np.array(bounds)[:, 1] - np.array(bounds)[:, 0])    # Initial velocity is chosen to be 1.8 * the minimum bounds length. This means only one reflection off the bounaries will happen.
+        # self.initial_velocity = 20 * (bounds[0][0] - bounds[0][1]) / self.number_of_particles  # Initial velocity for particles to initiate movement in the first iteration.
         self.current_iteration = 0                              # Tracks the number of iterations completed in the optimization process.
         self.swarm = None                                       # Placeholder for the Swarm instance, which contains all particle information.
 
@@ -98,7 +99,8 @@ class Pso:
             # Historical data for analysis and plotting
             self.local_max_history = []             # History of the best values found by the particle.
             self.local_max_history_loc = []         # History of the locations of those best values.
-            self.position_history = []              # History of the particle's positions over time.
+            self.position_history = []              # History of the particle's position over time.
+            self.velocity_history = []              # History of the particle's velocity over time.  
             self.sample_points_history = []         # History of the sample points chosen by the particle.
             self.sample_points_results_history = [] # History of the objective function values at the sample points.
 
@@ -138,7 +140,7 @@ class Pso:
         class Cautious:
             """
             The Cautious species operates like a classical swarm particle however
-            with a much lower global hyper-parameter and a higher global pull.
+            with a much lower global hyper-parameter and a higher local pull.
 
             - This particles aim is to get stuck in its own local optimum irrespective
                 of how the global is performing.
@@ -337,16 +339,20 @@ class Pso:
         if self.use_species:
             for p in range(self.number_of_particles):
                 species_id = random.choices(species_ids, self.species_weights)[0]  # Assign species based on specified weights.
+                print('Speices ID:', species_id)
                 particles.append(self.Particle(swarm_locs[p], swarm_velocities[p], None, None, None, None, species_id))
         else:
             for p in range(self.number_of_particles):
                 particles.append(self.Particle(swarm_locs[p], swarm_velocities[p], None, None, None, None, None))  # No species assignment if not using species.
 
         # Set up initial history and velocity threshold for each particle.
-        for particle in particles:
+        for i, particle in enumerate(particles):
             particle.position_history.append(particle.position)                 # Record the initial position in the particle's history.
             # Set the velocity threshold to determine when to boost the particles velocity
             particle.velocity_threshold = np.linalg.norm(particle.velocity) * self.vthresh
+
+            # Set up particle ID for tracking individual motion.
+            particle.ID = i
 
         # Initialize the swarm with the created particles and no initial communication matrix.
         self.swarm = self.Swarm(np.array(particles), None, self) 
@@ -815,10 +821,10 @@ class Pso:
         mesh_points = np.random.uniform(lower_bounds, upper_bounds, size=(self.number_of_particles * self.dimension, self.dimension))
 
         # Print position history for debugging purposes.
-        print(self.swarm.position_history)
+        # print(self.swarm.position_history)
 
         # Create a NearestNeighbors instance to compute distances between mesh points and particle positions.
-        Neighbors = NearestNeighbors(n_neighbors=int(self.number_of_particles / 10)).fit(self.swarm.position_history)
+        Neighbors = NearestNeighbors(n_neighbors=np.max([int(self.number_of_particles / 10), 3])).fit(self.swarm.position_history)
         distances, _ = Neighbors.kneighbors(mesh_points)
 
         # Calculate the average distance from each mesh point to its nearest neighbors.
@@ -1012,6 +1018,7 @@ class Pso:
 
         if self.use_species == True:
             for particle in self.swarm.particles:
+
                 if particle.species == 0:
                     # Reckless species: Update velocity with scaling if below threshold
                     velocity = np.add(np.add(reckless.hyper_parameter_set[0]*np.array(particle.velocity),
@@ -1038,7 +1045,9 @@ class Pso:
                     else:
                         particle.counter += 1
                         if particle.counter >= 5:
+                            print(particle.velocity, particle.velocity_threshold, self.swarm.vboost)
                             particle.velocity = (velocity / np.linalg.norm(velocity)) * particle.velocity_threshold * self.swarm.vboost
+                            print(particle.velocity)
                             particle.velocity_threshold = particle.velocity_threshold * self.swarm.vthresh
                             particle.counter = 0
 
@@ -1052,7 +1061,7 @@ class Pso:
                 elif particle.species == 3:
                     # Predictive species: Includes an additional term for predicted optimum location
                     velocity = np.add(np.add(np.add(predictive.hyper_parameter_set[0]*np.array(particle.velocity),
-                                                            predictive.hyper_parameter_set[1]*np.subtract(np.array(particle.local_max_loc), np.array(particle.position))),
+                    predictive.hyper_parameter_set[1]*np.subtract(np.array(particle.local_max_loc), np.array(particle.position))),
                                                     predictive.hyper_parameter_set[2]*np.subtract(np.array(self.swarm.global_max_loc), np.array(particle.position))),
                                             predictive.hyper_parameter_set[4]*np.subtract(np.array(self.swarm.predicted_max_loc), np.array(particle.position)))
                     if np.linalg.norm(velocity) >= particle.velocity_threshold:
@@ -1079,6 +1088,8 @@ class Pso:
                             particle.velocity = (velocity / np.linalg.norm(velocity)) * particle.velocity_threshold * self.swarm.vboost
                             particle.velocity_threshold = particle.velocity_threshold * self.swarm.vthresh
                             particle.counter = 0
+
+                particle.velocity_history.append(particle.velocity)
             
         elif self.use_adaptive_hyper_parameters == True:
             # Adaptive hyperparameters: Use functions based on the current iteration
@@ -1090,6 +1101,7 @@ class Pso:
                 particle.velocity = np.add(np.add(inertial_weight*np.array(particle.velocity),
                                                 local_weight*np.subtract(np.array(particle.local_max_loc), np.array(particle.position))),
                                         global_weight*np.subtract(np.array(self.swarm.global_max_loc), np.array(particle.position)))
+                particle.velocity_history.append(particle.velocity)
             
         else:
             # Static hyperparameters: Fixed parameters for velocity update
@@ -1097,6 +1109,7 @@ class Pso:
                 particle.velocity = np.add(np.add(self.static_hyper_parameters[0]*np.array(particle.velocity),
                                                 self.static_hyper_parameters[1]*np.subtract(np.array(particle.local_max_loc), np.array(particle.position))),
                                         self.static_hyper_parameters[2]*np.subtract(np.array(self.swarm.global_max_loc), np.array(particle.position)))
+                particle.velocity_history.append(particle.velocity)
 
         self.logger.info('Velocity Updated')
 
@@ -1110,18 +1123,32 @@ class Pso:
     def UpdatePosition(self):
         """
         Updates the position of each particle in the swarm based on its current velocity.
-
-        This method iterates over all particles in the swarm and updates their positions by adding the current velocity to the existing position. It also keeps a record of each particle's position history.
         """
-
         for particle in self.swarm.particles:
-            # Update the particle's position by adding its velocity to the current position
-            particle.position = np.add(particle.position, particle.velocity)
-            
+
+            new_position = np.add(particle.position, particle.velocity)  # Initial position update based on velocity
+
+            for i in range(len(new_position)):  # Iterate over each dimension
+                # Reflect the position and reverse velocity until the particle is inside the bounds
+                while new_position[i] < np.array(self.bounds)[i, 0] or new_position[i] > np.array(self.bounds)[i, 1]:
+                    if new_position[i] < np.array(self.bounds)[i, 0]:
+                        # Reflect below the lower bound
+                        new_position[i] = np.array(self.bounds)[i, 0] + (np.array(self.bounds)[i, 0] - new_position[i])
+                        particle.velocity[i] = -particle.velocity[i]  # Reverse velocity
+                    
+                    elif new_position[i] > np.array(self.bounds)[i, 1]:
+                        # Reflect above the upper bound
+                        new_position[i] = np.array(self.bounds)[i, 1] - (new_position[i] - np.array(self.bounds)[i, 1])
+                        particle.velocity[i] = -particle.velocity[i]  # Reverse velocity
+
+            # Update the particle's position
+            particle.position = new_position
+
             # Record the updated position in the particle's position history
             particle.position_history.append(particle.position)
-        
+
         self.logger.info('Position Updated')
+
 
 
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
@@ -1145,7 +1172,7 @@ class Pso:
 
         if particle.stuck == True:
  
-            # Change the particle's species to 1, which may have different behavioral parameters
+            # Change the particle's species to 2, which may have different behavioral parameters
             particle.species = 2
             self.number_of_evolutions_cautious_to_explore += 1
             
@@ -1177,7 +1204,7 @@ class Pso:
 
         if particle.interesting == True:
             
-            # Change the particle's species to 2, which may have different behavioral parameters
+            # Change the particle's species to 1, which may have different behavioral parameters
             particle.species = 1
             self.number_of_evolutions_explore_to_cautious += 1
             

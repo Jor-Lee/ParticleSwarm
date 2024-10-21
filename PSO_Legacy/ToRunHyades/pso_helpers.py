@@ -141,7 +141,7 @@ class PSO_Helpers:
 
     # ==============----------------- -- -- -- - - - - - - -- -- -- -- -------------------================ #
 
-    def setup_log (self):
+    def setup_log(self):
         """
         Simply sets up the log file
         
