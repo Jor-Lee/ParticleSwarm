@@ -1,8 +1,9 @@
+import os
 from scipy.stats import qmc
 import numpy as np
 import datetime as datetime
-from sklearn.neighbors import NearestNeighbors
 from sklearn.neighbors import KDTree
+import pandas as pd 
 
 
 
@@ -250,8 +251,6 @@ class PSO:
         self.swarm.particle_positions = np.array([particle.position for particle in self.swarm.particles])
         self.swarm.particle_positions_history = np.vstack([self.swarm.particle_positions_history, self.swarm.particle_positions])
 
-
-
     
     def UpdateOptimiser(self, y_values):
         for i, particle in enumerate(self.swarm.particles):
@@ -325,6 +324,54 @@ class PSO:
 
         return lowest_density_position
 
+
+    def WriteOutputToCSV(self, csv_path):
+        """
+        Write the simulation results to a CSV file.
+
+        This method saves the results of the current iteration, including the input 
+        parameters (X) and output results (Y), to a CSV file. If the file does not exist, 
+        it creates a new one with headers. Otherwise, it appends the new data to the existing file.
+
+        Parameters
+        ----------
+        csv_path : str
+            Path to the CSV file where results should be written.
+        raw_X : ndarray, shape (n_samples, n_dimensions)
+            The input parameters used in the current iteration.
+        raw_y : ndarray, shape (n_samples, 1)
+            The output results corresponding to the input parameters.
+        """
+        # Create arrays for iteration numbers and simulation numbers
+        iteration_numbers = np.full(self.number_of_particles, self.iteration - 1)
+        simulation_numbers = range(0, self.number_of_particles)
+
+        # Create a dictionary to hold the data with column names
+        data = {
+            'Iteration': np.array(iteration_numbers),
+            'Particle': np.array(simulation_numbers)
+        }
+
+        data['Result'] = []
+        for particle in self.swarm.particles:
+            data['Result'].append(particle.y_value_history[-1])
+
+        # Add raw_X values with column names (X0, X1, X2, ...)
+        for i in range(self.dimension):
+            data[f'X{i}'] = []
+            for particle in self.swarm.particles:
+                data[f'X{i}'].append(particle.position_history[-2][i])
+            data[f'X{i}'] = np.array(data[f'X{i}'])
+
+        # Convert the dictionary to a pandas DataFrame
+        df = pd.DataFrame(data)
+
+        # Check if the CSV file exists, if not, create it and write the headers
+        if not os.path.isfile(csv_path):
+            df.to_csv(csv_path, index=False)
+        else:
+            # Append new data to the existing CSV file
+            df.to_csv(csv_path, mode='a', header=False, index=False)
 
 
     def ParticleSummary(self):
