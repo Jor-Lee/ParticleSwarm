@@ -4,7 +4,7 @@ import numpy as np
 import datetime as datetime
 from sklearn.neighbors import KDTree
 import pandas as pd 
-
+import pickle
 
 
 def generate_random_unit_vector(dimension):
@@ -354,7 +354,8 @@ class PSO:
 
         data['Result'] = []
         for particle in self.swarm.particles:
-            data['Result'].append(particle.y_value_history[-1])
+            data['Result'].append(particle.y_value_history[-1][0])
+        data['Result'] = np.array(data['Result'])
 
         # Add raw_X values with column names (X0, X1, X2, ...)
         for i in range(self.dimension):
@@ -389,3 +390,18 @@ class PSO:
     
         print('Global Max and History:', self.swarm.global_max, self.swarm.global_max_history)
         print('Global Max Position and History:', self.swarm.global_max_position, self.swarm.global_max_position_history)
+
+
+def SaveOptimiser(object, file_path):
+    # Open the specified file in write-binary mode
+    with open(file_path, 'wb') as file:
+        # Serialize the object using pickle and write it to the file
+        pickle.dump(object, file)
+
+def LoadOptimiser(file_path):
+    # Open the specified file in read-binary mode
+    with open(file_path, 'rb') as file:
+        # Deserialize the object using pickle and return it
+        object = pickle.load(file)
+
+    return object
