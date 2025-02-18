@@ -155,14 +155,14 @@ class PSO:
                 print('Inertial Term:', inertial_term)
 
             # Local term attracting particles to the location of thier individual maximum
-            local_term = particle.hyper_parameter_set[1] * np.subtract(np.array(particle.local_max_position), particle.position)
+            local_term = np.random.rand() * particle.hyper_parameter_set[1] * np.subtract(np.array(particle.local_max_position), particle.position)
             if debugging:
                 print('Local Subtraction:', np.subtract(np.array(particle.local_max_position), particle.position))
                 print('Hyper-parameter 1:', particle.hyper_parameter_set[1])
                 print('Local Term:', local_term)
 
             # Gobal term attracting particles to the location of the swarms maximum
-            global_term = particle.hyper_parameter_set[2] * np.subtract(np.array(self.swarm.global_max_position), particle.position)
+            global_term = np.random.rand() * particle.hyper_parameter_set[2] * np.subtract(np.array(self.swarm.global_max_position), particle.position)
             if debugging:
                 print('Global Subtraction:',np.subtract(np.array(self.swarm.global_max_position), particle.position))
                 print('Hyper-parameter 1:', particle.hyper_parameter_set[2])
